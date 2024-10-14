@@ -272,7 +272,9 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.update_mute_checkboxes()
         # Create new instances, players, and video frames
         for i in range(self.num_videos):
-            instance = vlc.Instance()
+            # Disable hardware acceleration
+            vlc_args = ['--avcodec-hw', 'none', '--no-video-title-show']
+            instance = vlc.Instance(vlc_args)
             player = instance.media_player_new()
             player.video_set_mouse_input(False)
             player.video_set_key_input(False)
@@ -319,12 +321,10 @@ class VideoPlayer(QtWidgets.QMainWindow):
         current_player.stop()
         current_player.release()
         # Create new instance with or without dummy audio output
+        vlc_args = ['--avcodec-hw', 'none', '--no-video-title-show']
         if is_muted:
-            # Use dummy audio output to mute
-            new_instance = vlc.Instance('--aout=dummy')
-        else:
-            # Use default audio output
-            new_instance = vlc.Instance()
+            vlc_args.append('--aout=dummy')  # Use dummy audio output to mute
+        new_instance = vlc.Instance(vlc_args)
         new_player = new_instance.media_player_new()
         new_player.video_set_mouse_input(False)
         new_player.video_set_key_input(False)
