@@ -24,7 +24,6 @@ VIDEO_EXTENSIONS = [
     '.webm', '.mpeg', '.mpg', '.ts', '.m4v'
 ]
 
-
 class VideoFrame(QtWidgets.QFrame):
     """Custom video frame."""
     double_clicked = QtCore.pyqtSignal()
@@ -47,10 +46,8 @@ class VideoFrame(QtWidgets.QFrame):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             self.clicked.emit()
 
-
 class OverlayControls(QtWidgets.QWidget):
     """Overlay widget for fullscreen playback controls."""
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(QtCore.Qt.WindowType.FramelessWindowHint | QtCore.Qt.WindowType.Tool)
@@ -107,6 +104,49 @@ class OverlayControls(QtWidgets.QWidget):
     def mouseMoveEvent(self, event):
         self.hide_timer.start()  # Reset timer on mouse move
 
+class SelectVideoDialog(QtWidgets.QDialog):
+    """Dialog to select which video to replace."""
+    def __init__(self, playing_videos, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Video to Replace")
+        self.setModal(True)
+        self.selected_index = None
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        label = QtWidgets.QLabel("Select which video to replace:")
+        layout.addWidget(label)
+
+        self.list_widget = QtWidgets.QListWidget()
+        for idx, video in playing_videos:
+            item = QtWidgets.QListWidgetItem(f"Video {idx + 1}: {os.path.basename(video)}")
+            self.list_widget.addItem(item)
+        layout.addWidget(self.list_widget)
+
+        buttons = QtWidgets.QHBoxLayout()
+        self.ok_button = QtWidgets.QPushButton("OK")
+        self.ok_button.clicked.connect(self.accept)
+        self.cancel_button = QtWidgets.QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+        buttons.addStretch()
+        buttons.addWidget(self.ok_button)
+        buttons.addWidget(self.cancel_button)
+        layout.addLayout(buttons)
+
+    def get_selected_index(self):
+        selected_items = self.list_widget.selectedItems()
+        if not selected_items:
+            return None
+        selected_text = selected_items[0].text()
+        # Extract the index from the text
+        parts = selected_text.split(":")
+        if len(parts) < 2:
+            return None
+        try:
+            video_num = int(parts[0].split(" ")[1]) - 1
+            return video_num
+        except:
+            return None
 
 class VideoPlayer(QtWidgets.QMainWindow):
     """Main application window for ShuffleScreen."""
@@ -143,7 +183,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
     def init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("ShuffleScreen")
-        self.resize(800, 600)
+        self.resize(1000, 700)
 
         # Central widget
         central_widget = QtWidgets.QWidget()
@@ -163,8 +203,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
         # Video list
         self.video_list_widget = QtWidgets.QListWidget()
         self.video_list_widget.itemDoubleClicked.connect(self.play_selected_video)
-        self.video_list_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred,
-                                             QtWidgets.QSizePolicy.Policy.Expanding)
+        self.video_list_widget.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.video_list_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Expanding)
 
         # Number of videos selection
         self.num_videos_label = QtWidgets.QLabel("Number of Videos:")
@@ -235,7 +275,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.video_list_widget)
         self.splitter.addWidget(self.video_area_widget)
-        self.splitter.setSizes([200, 600])  # Initial sizes
+        self.splitter.setSizes([250, 750])  # Initial sizes
         self.splitter.setStretchFactor(0, 0)  # Playlist does not stretch
         self.splitter.setStretchFactor(1, 1)  # Video area stretches
         self.splitter.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
@@ -274,8 +314,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
         # Help dock widget
         self.help_dock = QtWidgets.QDockWidget("Help", self)
-        self.help_dock.setAllowedAreas(
-            QtCore.Qt.DockWidgetArea.RightDockWidgetArea | QtCore.Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.help_dock.setAllowedAreas(QtCore.Qt.DockWidgetArea.RightDockWidgetArea | QtCore.Qt.DockWidgetArea.LeftDockWidgetArea)
         self.help_text = QtWidgets.QTextEdit()
         self.help_text.setReadOnly(True)
         self.help_text.setText(self.get_help_text())
@@ -292,52 +331,51 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
         <h3>Basic Usage:</h3>
         <ul>
-          <li>Click on "Select Video Folder" to choose a folder containing your video files.</li>
-          <li>Use the "Number of Videos" spin box to select how many videos you want to play at the same time (up to 9).</li>
-          <li>The videos will play randomly from your selected folder.</li>
-          <li>If no videos are found, ensure the folder contains supported video formats.</li>
+            <li>Click on "Select Video Folder" to choose a folder containing your video files.</li>
+            <li>Use the "Number of Videos" spin box to select how many videos you want to play at the same time (up to 9).</li>
+            <li>The videos will play randomly from your selected folder.</li>
+            <li>If no videos are found, ensure the folder contains supported video formats.</li>
         </ul>
 
         <h3>Controls:</h3>
         <ul>
-          <li><b>Play/Pause:</b> Start or pause video playback.</li>
-          <li><b>Next:</b> Skip to the next set of random videos.</li>
-          <li><b>Stop:</b> Stop all videos.</li>
-          <li><b>Fullscreen:</b> Enter or exit fullscreen mode.</li>
-          <li><b>Mute:</b> Mute or unmute all videos.</li>
-          <li><b>Volume Slider:</b> Adjust the volume of all videos (individually muted videos will not be affected).</li>
-          <li><b>Mute Video X:</b> Individually mute or unmute a specific video.</li>
-          <li><b>Mouse Wheel Scroll:</b> Use the mouse wheel to seek forward (up) or backward (down) 10 seconds in the video.</li>
-          <li><b>Show/Hide Playlist:</b> Toggle the visibility of the video playlist.</li>
-          <li><b>Help:</b> Show or hide this help panel.</li>
+            <li><b>Play/Pause:</b> Start or pause video playback.</li>
+            <li><b>Next:</b> Skip to the next set of random videos.</li>
+            <li><b>Stop:</b> Stop all videos.</li>
+            <li><b>Fullscreen:</b> Enter or exit fullscreen mode.</li>
+            <li><b>Mute:</b> Mute or unmute all videos.</li>
+            <li><b>Volume Slider:</b> Adjust the volume of all videos (individually muted videos will not be affected).</li>
+            <li><b>Mute Video X:</b> Individually mute or unmute a specific video.</li>
+            <li><b>Mouse Wheel Scroll:</b> Use the mouse wheel to seek forward (up) or backward (down) 10 seconds in the video.</li>
+            <li><b>Show/Hide Playlist:</b> Toggle the visibility of the video playlist.</li>
+            <li><b>Help:</b> Show or hide this help panel.</li>
         </ul>
 
         <h3>Fullscreen Mode:</h3>
         <ul>
-          <li>Double-click on a video or click the "Fullscreen" button to enter fullscreen mode.</li>
-          <li>In fullscreen, click once on the video area to show the playback controls.</li>
-          <li>The controls will hide automatically after 5 seconds of inactivity but can be recalled by clicking the video.</li>
-          <li>Double-click or press <b>Esc</b> to exit fullscreen mode.</li>
+            <li>Double-click on a video or click the "Fullscreen" button to enter fullscreen mode.</li>
+            <li>In fullscreen, click once on the video area to show the playback controls.</li>
+            <li>The controls will hide automatically after 5 seconds of inactivity but can be recalled by clicking the video.</li>
+            <li>Double-click or press <b>Esc</b> to exit fullscreen mode.</li>
         </ul>
 
         <h3>Shortcut Keys:</h3>
         <ul>
-          <li><b>Spacebar:</b> Play/Pause videos.</li>
-          <li><b>N:</b> Play the next set of videos.</li>
-          <li><b>S:</b> Stop all videos.</li>
-          <li><b>F:</b> Toggle fullscreen mode.</li>
-          <li><b>M:</b> Mute/Unmute all videos.</li>
-          <li><b>Up/Down Arrows:</b> Increase/Decrease volume.</li>
-          <li><b>Right/Left Arrows:</b> Seek forward/backward by 10 seconds.</li>
-          <li><b>Esc:</b> Exit fullscreen mode.</li>
+            <li><b>Spacebar:</b> Play/Pause videos.</li>
+            <li><b>N:</b> Play the next set of videos.</li>
+            <li><b>S:</b> Stop all videos.</li>
+            <li><b>F:</b> Toggle fullscreen mode.</li>
+            <li><b>M:</b> Mute/Unmute all videos.</li>
+            <li><b>Up/Down Arrows:</b> Increase/Decrease volume.</li>
+            <li><b>Right/Left Arrows:</b> Seek forward/backward by 10 seconds.</li>
+            <li><b>Esc:</b> Exit fullscreen mode.</li>
         </ul>
 
         <h3>Troubleshooting:</h3>
         <ul>
-          <li><b>Playback Errors:</b> If a video fails to play, ensure the file format is supported (e.g., MP4, AVI, MKV).</li>
-          <li><b>No Videos Found:</b> Ensure the selected folder contains supported video formats and try again.</li>
+            <li><b>Playback Errors:</b> If a video fails to play, ensure the file format is supported (e.g., MP4, AVI, MKV).</li>
+            <li><b>No Videos Found:</b> Ensure the selected folder contains supported video formats and try again.</li>
         </ul>
-
         """
         return help_text
 
@@ -503,8 +541,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
             # Attach event manager
             event_manager = player.event_manager()
-            event_manager.event_attach(vlc.EventType.MediaPlayerPlaying,
-                                       functools.partial(self.on_player_playing, index=i))
+            event_manager.event_attach(vlc.EventType.MediaPlayerPlaying, functools.partial(self.on_player_playing, index=i))
 
             player.play()
 
@@ -517,8 +554,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 player.audio_set_volume(self.volume_slider.value())
 
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Playback Error",
-                                           f"Failed to play video:\n{next_video}\nError: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, "Playback Error", f"Failed to play video:\n{next_video}\nError: {str(e)}")
 
     def toggle_individual_mute(self, index, state):
         """Toggle mute for an individual video."""
@@ -551,8 +587,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 new_player.set_position(current_position)
         # Attach event manager for marquee
         event_manager = new_player.event_manager()
-        event_manager.event_attach(vlc.EventType.MediaPlayerPlaying,
-                                   functools.partial(self.on_player_playing, index=index))
+        event_manager.event_attach(vlc.EventType.MediaPlayerPlaying, functools.partial(self.on_player_playing, index=index))
 
     def arrange_video_frames(self):
         """Arrange video frames in the video area layout."""
@@ -563,6 +598,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
             if widget is not None:
                 widget.setParent(None)
         num = len(self.video_frames)
+        if num == 0:
+            return
         rows = cols = int(num ** 0.5)
         if rows * cols < num:
             cols += 1
@@ -583,8 +620,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.play_button.setText("Play")
             self.overlay_controls.play_button.setText("Play")
         else:
-            if all(player.get_state() in [vlc.State.Ended, vlc.State.NothingSpecial, vlc.State.Stopped] for player in
-                   self.players):
+            if all(player.get_state() in [vlc.State.Ended, vlc.State.NothingSpecial, vlc.State.Stopped] for player in self.players):
                 self.play_random_videos()
             else:
                 for player in self.players:
@@ -732,7 +768,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.toggle_playlist_button.setText("Show Playlist")
         else:
             self.video_list_widget.show()
-            self.splitter.setSizes([200, 600])
+            self.splitter.setSizes([250, 750])
             self.toggle_playlist_button.setText("Hide Playlist")
 
     def toggle_mute(self):
@@ -785,37 +821,55 @@ class VideoPlayer(QtWidgets.QMainWindow):
         player.video_set_marquee_string(vlc.VideoMarqueeOption.Text, f"{index + 1}")
 
     def play_selected_video(self, item):
-        """Play the selected video from the list in all players."""
+        """Play the selected video from the list in specific players."""
         selected_video = item.text()
-        self.last_played = [selected_video] * len(self.players)  # Update last played
+        if not self.players:
+            return
 
-        for i, player in enumerate(self.players):
-            try:
-                media = self.instances[i].media_new(selected_video)
-                player.set_media(media)
+        # Check how many players are currently playing
+        playing_players = [(i, self.last_played[i]) for i in range(len(self.players)) if self.players[i].is_playing()]
+        if len(playing_players) <= 1:
+            # If only one video is playing, replace it
+            index_to_replace = 0
+        else:
+            # Prompt user to select which video to replace
+            dialog = SelectVideoDialog(playing_players, self)
+            if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+                index_to_replace = dialog.get_selected_index()
+                if index_to_replace is None:
+                    return  # User canceled or made no selection
+            else:
+                return  # User canceled
 
-                # Attach event manager
-                event_manager = player.event_manager()
-                event_manager.event_attach(vlc.EventType.MediaPlayerPlaying,
-                                           functools.partial(self.on_player_playing, index=i))
+        # Replace the selected video in the chosen player
+        self.last_played[index_to_replace] = selected_video
+        player = self.players[index_to_replace]
+        instance = self.instances[index_to_replace]
+        try:
+            media = instance.media_new(selected_video)
+            player.set_media(media)
 
-                player.play()
+            # Attach event manager
+            event_manager = player.event_manager()
+            event_manager.event_attach(vlc.EventType.MediaPlayerPlaying, functools.partial(self.on_player_playing, index=index_to_replace))
 
-                # Set initial volume
-                checkbox = self.mute_checkboxes_layout.itemAt(i).widget()
-                if checkbox and checkbox.isChecked():
-                    player.audio_set_mute(True)
-                else:
-                    player.audio_set_mute(False)
-                    player.audio_set_volume(self.volume_slider.value())
+            player.play()
 
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "Playback Error",
-                                               f"Failed to play video:\n{selected_video}\nError: {str(e)}")
+            # Set initial volume
+            checkbox = self.mute_checkboxes_layout.itemAt(index_to_replace).widget()
+            if checkbox and checkbox.isChecked():
+                player.audio_set_mute(True)
+            else:
+                player.audio_set_mute(False)
+                player.audio_set_volume(self.volume_slider.value())
+
+            # Update UI elements
+            now_playing = ', '.join([os.path.basename(v) if v else '' for v in self.last_played])
+            self.current_video_label.setText(f"Now Playing: {now_playing}")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Playback Error", f"Failed to play video:\n{selected_video}\nError: {str(e)}")
         self.play_button.setText("Pause")
         self.overlay_controls.play_button.setText("Pause")
-        self.current_video_label.setText(f"Now Playing: {os.path.basename(selected_video)}")
-        self.timer.start()
 
     def update_ui(self):
         """Update the UI based on the players' state."""
@@ -862,7 +916,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
         time.sleep(0.5)
         event.accept()
 
-
 def main():
     """Main entry point for the application."""
     app = QtWidgets.QApplication(sys.argv)
@@ -870,7 +923,7 @@ def main():
     player.show()
     sys.exit(app.exec())
 
-
 if __name__ == "__main__":
     main()
+
 
