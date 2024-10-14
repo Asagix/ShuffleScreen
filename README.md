@@ -1,7 +1,5 @@
 # ShuffleScreen
 
-![ShuffleScreen Logo](path_to_logo_image) <!-- Optional: Add a logo or screenshot here -->
-
 ## Table of Contents
 
 - [Overview](#overview)
