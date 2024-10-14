@@ -13,9 +13,9 @@ Copyright (c) 2024 Kevin Schürmann. All rights reserved.
 import sys
 import os
 import random
-import time
 import vlc
-import winreg
+import functools
+import time
 from PyQt6 import QtWidgets, QtGui, QtCore
 
 # List of video file extensions supported by VLC
@@ -24,48 +24,31 @@ VIDEO_EXTENSIONS = [
     '.webm', '.mpeg', '.mpg', '.ts', '.m4v'
 ]
 
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except AttributeError:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
-
-def is_windows_dark_mode():
-    """Check if Windows dark mode is enabled."""
-    try:
-        registry = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
-        key_path = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize'
-        key = winreg.OpenKey(registry, key_path)
-        value, _ = winreg.QueryValueEx(key, 'AppsUseLightTheme')
-        winreg.CloseKey(key)
-        return value == 0
-    except Exception:
-        return False
-
-
 class VideoFrame(QtWidgets.QFrame):
-    """Custom video frame to handle double-click events."""
+    """Custom video frame."""
     double_clicked = QtCore.pyqtSignal()
+    wheel_scrolled = QtCore.pyqtSignal(int)
 
-    def __init__(self, parent=None):
+    def __init__(self, index, parent=None):
         super().__init__(parent)
+        self.index = index
         self.setStyleSheet("background-color: black;")
+        self.setMouseTracking(True)
 
     def mouseDoubleClickEvent(self, event):
         self.double_clicked.emit()
 
+    def wheelEvent(self, event):
+        self.wheel_scrolled.emit(event.angleDelta().y())
 
 class VideoPlayer(QtWidgets.QMainWindow):
-    """Main application window for the Random Video Player."""
+    """Main application window for ShuffleScreen."""
 
     def __init__(self):
         super().__init__()
 
-        # VLC player instances
-        self.instance = vlc.Instance()
+        # VLC instances and players
+        self.instances = []  # List of VLC instances
         self.players = []  # List of media players
         self.video_frames = []  # Corresponding video frames
 
@@ -79,8 +62,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
         # Fullscreen state
         self.is_fullscreen = False
 
-        # Set the application window icon here, using the resource_path function
-        self.setWindowIcon(QtGui.QIcon(resource_path("app_icon.ico")))
+        # Save normal geometry
+        self.normal_geometry = self.saveGeometry()
 
         # UI setup
         self.init_ui()
@@ -123,6 +106,9 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.num_videos_spinbox.setValue(1)
         self.num_videos_spinbox.valueChanged.connect(self.change_num_videos)
 
+        # Active screens label
+        self.active_screens_label = QtWidgets.QLabel("Active Screens: 1")
+
         # Playback controls
         self.play_button = QtWidgets.QPushButton("Play")
         self.play_button.clicked.connect(self.play_pause)
@@ -153,35 +139,20 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
         self.volume_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.volume_slider.setRange(0, 100)
-        self.volume_slider.setValue(100)
+        self.volume_slider.setValue(50)  # Default volume set to 50
         self.volume_slider.valueChanged.connect(self.set_volume)
         self.volume_slider.setEnabled(False)
 
         volume_layout.addWidget(self.mute_button)
         volume_layout.addWidget(self.volume_slider)
 
-        # Seek slider
-        self.position_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.position_slider.setRange(0, 1000)
-        self.position_slider.sliderPressed.connect(self.position_slider_pressed)
-        self.position_slider.sliderReleased.connect(self.position_slider_released)
-        self.position_slider.sliderMoved.connect(self.position_slider_moved)
-        self.position_slider.setEnabled(False)
-        self.position_slider.setSingleStep(1)
-
-        # Time labels
-        self.current_time_label = QtWidgets.QLabel("00:00")
-        self.total_time_label = QtWidgets.QLabel("00:00")
-
-        # Position layout
-        position_layout = QtWidgets.QHBoxLayout()
-        position_layout.addWidget(self.current_time_label)
-        position_layout.addWidget(self.position_slider, stretch=1)
-        position_layout.addWidget(self.total_time_label)
-
         # Current video label
         self.current_video_label = QtWidgets.QLabel("No video playing.")
         self.current_video_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+
+        # Mute checkboxes for individual videos
+        self.mute_checkboxes_layout = QtWidgets.QHBoxLayout()
+        self.update_mute_checkboxes()
 
         # Video area
         self.video_area_widget = QtWidgets.QWidget()
@@ -207,6 +178,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
         # Number of videos control (placed near playback controls)
         playback_layout.addWidget(self.num_videos_label)
         playback_layout.addWidget(self.num_videos_spinbox)
+        playback_layout.addWidget(self.active_screens_label)
 
         playback_layout.addWidget(self.toggle_playlist_button)
 
@@ -216,13 +188,10 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
         main_layout.addWidget(self.folder_button)
         main_layout.addWidget(self.folder_label)
+        main_layout.addLayout(self.mute_checkboxes_layout)  # Add mute checkboxes layout
         main_layout.addWidget(self.splitter, stretch=1)
-        main_layout.addLayout(position_layout)
         main_layout.addWidget(self.current_video_label)
         main_layout.addLayout(controls_layout)
-
-        # Apply styles
-        self.apply_styles()
 
         # Initialize players and video frames
         self.change_num_videos(self.num_videos)
@@ -236,76 +205,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             player.set_hwnd(win_id)
         elif sys.platform == "darwin":
             player.set_nsobject(win_id)
-
-    def apply_styles(self):
-        """Apply styles based on Windows dark mode setting."""
-        dark_mode = is_windows_dark_mode()
-        if dark_mode:
-            # Dark theme styles
-            self.setStyleSheet("""
-                QMainWindow {
-                    background-color: #2d2d30;
-                    color: #d4d4d4;
-                }
-                QPushButton {
-                    background-color: #3e3e42;
-                    color: #d4d4d4;
-                    border: none;
-                    padding: 8px 16px;
-                }
-                QPushButton:hover {
-                    background-color: #505053;
-                }
-                QLabel {
-                    color: #d4d4d4;
-                }
-                QListWidget {
-                    background-color: #3e3e42;
-                    color: #d4d4d4;
-                }
-                QSlider::groove:horizontal {
-                    background: #5a5a5a;
-                    height: 8px;
-                }
-                QSlider::handle:horizontal {
-                    background: #d4d4d4;
-                    width: 16px;
-                    margin: -4px 0;
-                }
-            """)
-        else:
-            # Light theme styles
-            self.setStyleSheet("""
-                QMainWindow {
-                    background-color: #ffffff;
-                    color: #000000;
-                }
-                QPushButton {
-                    background-color: #e1e1e1;
-                    color: #000000;
-                    border: none;
-                    padding: 8px 16px;
-                }
-                QPushButton:hover {
-                    background-color: #d4d4d4;
-                }
-                QLabel {
-                    color: #000000;
-                }
-                QListWidget {
-                    background-color: #ffffff;
-                    color: #000000;
-                }
-                QSlider::groove:horizontal {
-                    background: #d4d4d4;
-                    height: 8px;
-                }
-                QSlider::handle:horizontal {
-                    background: #000000;
-                    width: 16px;
-                    margin: -4px 0;
-                }
-            """)
 
     def select_folder(self):
         """Open folder picker dialog and load video files."""
@@ -336,7 +235,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.fullscreen_button.setEnabled(True)
             self.mute_button.setEnabled(True)
             self.volume_slider.setEnabled(True)
-            self.position_slider.setEnabled(True)
             # Start playback automatically
             self.play_random_videos()
             self.play_button.setText("Pause")
@@ -348,12 +246,11 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.fullscreen_button.setEnabled(False)
             self.mute_button.setEnabled(False)
             self.volume_slider.setEnabled(False)
-            self.position_slider.setEnabled(False)
 
     def change_num_videos(self, value):
         """Change the number of videos to play simultaneously."""
-        is_playing = any(player.is_playing() for player in self.players)
         self.num_videos = value
+        self.active_screens_label.setText(f"Active Screens: {self.num_videos}")
         # Stop existing players
         for player in self.players:
             if player.is_playing():
@@ -361,7 +258,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 time.sleep(0.1)
             player.release()
         self.last_played = []
-        # Clear existing players and video frames
+        # Clear existing instances, players, video frames
+        self.instances.clear()
         self.players.clear()
         self.video_frames.clear()
         # Clear the video area layout
@@ -370,24 +268,79 @@ class VideoPlayer(QtWidgets.QMainWindow):
             widget = item.widget()
             if widget is not None:
                 widget.setParent(None)
-        # Create new players and video frames
+        # Clear mute checkboxes
+        self.update_mute_checkboxes()
+        # Create new instances, players, and video frames
         for i in range(self.num_videos):
-            player = self.instance.media_player_new()
+            instance = vlc.Instance()
+            player = instance.media_player_new()
             player.video_set_mouse_input(False)
             player.video_set_key_input(False)
-            video_frame = VideoFrame()
-            video_frame.mouseDoubleClickEvent = self.video_frame_double_click
+            video_frame = VideoFrame(i)
+            video_frame.double_clicked.connect(self.video_frame_double_click)
+            video_frame.wheel_scrolled.connect(functools.partial(self.video_frame_wheel_scrolled, i))
             self.set_video_output(player, video_frame)
+            self.instances.append(instance)
             self.players.append(player)
             self.video_frames.append(video_frame)
         # Arrange video frames in the layout
         self.arrange_video_frames()
-        # If videos were playing, start playing new set immediately
-        if is_playing:
+        # Update mute checkboxes
+        self.update_mute_checkboxes()
+        # Start playing new set immediately if videos are loaded
+        if self.video_files:
             self.play_random_videos()
             self.play_button.setText("Pause")
+
+    def update_mute_checkboxes(self):
+        """Update mute checkboxes for individual videos."""
+        # Clear existing checkboxes
+        while self.mute_checkboxes_layout.count():
+            item = self.mute_checkboxes_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        # Add new checkboxes
+        for index in range(self.num_videos):
+            checkbox = QtWidgets.QCheckBox(f"Mute Video {index + 1}")
+            checkbox.setChecked(False)
+            checkbox.stateChanged.connect(functools.partial(self.toggle_individual_mute, index))
+            self.mute_checkboxes_layout.addWidget(checkbox)
+
+    def toggle_individual_mute(self, index, state):
+        """Toggle mute for an individual video."""
+        is_muted = state == QtCore.Qt.CheckState.Checked.value
+        current_player = self.players[index]
+        current_instance = self.instances[index]
+        current_media = current_player.get_media()
+        current_time = current_player.get_time()
+        current_position = current_player.get_position()
+        # Stop and release current player
+        current_player.stop()
+        current_player.release()
+        # Create new instance with or without dummy audio output
+        if is_muted:
+            # Use dummy audio output to mute
+            new_instance = vlc.Instance('--aout=dummy')
         else:
-            self.play_button.setText("Play")
+            # Use default audio output
+            new_instance = vlc.Instance()
+        new_player = new_instance.media_player_new()
+        new_player.video_set_mouse_input(False)
+        new_player.video_set_key_input(False)
+        self.set_video_output(new_player, self.video_frames[index])
+        self.instances[index] = new_instance
+        self.players[index] = new_player
+        # Set media and play
+        if current_media:
+            new_player.set_media(current_media)
+            new_player.play()
+            # Restore playback position
+            if current_position > 0:
+                new_player.set_position(current_position)
+        # Attach event manager for marquee
+        event_manager = new_player.event_manager()
+        event_manager.event_attach(vlc.EventType.MediaPlayerPlaying, functools.partial(self.on_player_playing, index=index))
 
     def arrange_video_frames(self):
         """Arrange video frames in the video area layout."""
@@ -432,15 +385,14 @@ class VideoPlayer(QtWidgets.QMainWindow):
         self.play_button.setText("Play")
         self.current_video_label.setText("No video playing.")
         self.timer.stop()
-        self.position_slider.setValue(0)
-        self.current_time_label.setText("00:00")
-        self.total_time_label.setText("00:00")
 
     def toggle_fullscreen(self):
         """Toggle fullscreen mode for the video area."""
         if not self.is_fullscreen:
             # Enter fullscreen
             self.is_fullscreen = True
+            # Save current geometry
+            self.normal_geometry = self.saveGeometry()
             self.showFullScreen()
             self.fullscreen_button.setText("Exit Fullscreen")
             # Hide UI elements
@@ -449,9 +401,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.folder_button.hide()
             self.folder_label.hide()
             self.splitter.hide()
-            self.position_slider.hide()
-            self.current_time_label.hide()
-            self.total_time_label.hide()
             self.current_video_label.hide()
             self.play_button.hide()
             self.next_button.hide()
@@ -462,6 +411,11 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.toggle_playlist_button.hide()
             self.num_videos_label.hide()
             self.num_videos_spinbox.hide()
+            self.active_screens_label.hide()
+            for i in range(self.mute_checkboxes_layout.count()):
+                widget = self.mute_checkboxes_layout.itemAt(i).widget()
+                if widget:
+                    widget.hide()
             # Re-add video area directly to central widget
             self.centralWidget().layout().addWidget(self.video_area_widget)
             # Update the video outputs
@@ -471,6 +425,8 @@ class VideoPlayer(QtWidgets.QMainWindow):
             # Exit fullscreen
             self.is_fullscreen = False
             self.showNormal()
+            # Restore geometry
+            self.restoreGeometry(self.normal_geometry)
             self.fullscreen_button.setText("Fullscreen")
             # Show UI elements
             self.menuBar().show()
@@ -478,9 +434,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.folder_button.show()
             self.folder_label.show()
             self.splitter.show()
-            self.position_slider.show()
-            self.current_time_label.show()
-            self.total_time_label.show()
             self.current_video_label.show()
             self.play_button.show()
             self.next_button.show()
@@ -491,6 +444,11 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.toggle_playlist_button.show()
             self.num_videos_label.show()
             self.num_videos_spinbox.show()
+            self.active_screens_label.show()
+            for i in range(self.mute_checkboxes_layout.count()):
+                widget = self.mute_checkboxes_layout.itemAt(i).widget()
+                if widget:
+                    widget.show()
             # Remove video area from central widget and add back to splitter
             self.centralWidget().layout().removeWidget(self.video_area_widget)
             self.splitter.addWidget(self.video_area_widget)
@@ -498,9 +456,22 @@ class VideoPlayer(QtWidgets.QMainWindow):
             for player, video_frame in zip(self.players, self.video_frames):
                 self.set_video_output(player, video_frame)
 
-    def video_frame_double_click(self, event):
+    def video_frame_double_click(self):
         """Handle double-click event on the video frame."""
         self.toggle_fullscreen()
+
+    def video_frame_wheel_scrolled(self, index, delta):
+        """Handle mouse wheel scroll event on a video frame."""
+        player = self.players[index]
+        if player:
+            # Scroll up to seek forward, down to seek backward
+            current_time = player.get_time()
+            if delta > 0:
+                # Seek forward 10 seconds
+                player.set_time(current_time + 10000)
+            else:
+                # Seek backward 10 seconds
+                player.set_time(max(current_time - 10000, 0))
 
     def toggle_playlist(self):
         """Toggle the visibility of the playlist."""
@@ -515,51 +486,30 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
     def toggle_mute(self):
         """Toggle mute for all videos."""
-        if any(player.audio_get_mute() for player in self.players):
-            for player in self.players:
-                player.audio_set_mute(False)
-            self.mute_button.setText("Mute")
-        else:
+        if any(player.audio_get_mute() == 0 for player in self.players):
             for player in self.players:
                 player.audio_set_mute(True)
             self.mute_button.setText("Unmute")
+        else:
+            for player in self.players:
+                player.audio_set_mute(False)
+            self.mute_button.setText("Mute")
 
     def set_volume(self, value):
         """Set the volume for all videos."""
-        for player in self.players:
-            player.audio_set_volume(value)
-
-    def set_position(self, position):
-        """Set the playback position for all videos."""
-        for player in self.players:
-            player.set_position(position / 1000.0)
-
-    def position_slider_pressed(self):
-        """Handle the event when the position slider is pressed."""
-        self.is_seeking = True
-
-    def position_slider_released(self):
-        """Handle the event when the position slider is released."""
-        self.is_seeking = False
-        self.set_position(self.position_slider.value())
-
-    def position_slider_moved(self, position):
-        """Handle the event when the position slider is moved."""
-        if self.is_seeking:
-            lengths = [player.get_length() for player in self.players if player.get_length() > 0]
-            if lengths:
-                total_length = max(lengths)
-                current_time = position / 1000 * total_length / 1000
-                self.current_time_label.setText(self.format_time(current_time))
+        for i, player in enumerate(self.players):
+            # If the player is not muted individually
+            checkbox = self.mute_checkboxes_layout.itemAt(i).widget()
+            if checkbox and not checkbox.isChecked():
+                player.audio_set_volume(value)
 
     def play_random_videos(self):
-        """Play random videos, ensuring no immediate repeats."""
+        """Play random videos and overlay the video number."""
         if not self.video_files:
-            QtWidgets.QMessageBox.warning(self, "No Videos", "No videos are loaded to play.")
-            return
+            return  # Avoid showing a message at startup
 
         self.last_played = []
-        for player in self.players:
+        for i, player in enumerate(self.players):
             choices = [video for video in self.video_files if video not in self.last_played]
             if not choices:
                 choices = self.video_files.copy()
@@ -567,36 +517,65 @@ class VideoPlayer(QtWidgets.QMainWindow):
             self.last_played.append(next_video)
 
             try:
-                media = self.instance.media_new(next_video)
+                media = self.instances[i].media_new(next_video)
                 player.set_media(media)
-                player.video_set_mouse_input(False)  # Disable VLC mouse input
+
+                # Attach event manager
+                event_manager = player.event_manager()
+                event_manager.event_attach(vlc.EventType.MediaPlayerPlaying, functools.partial(self.on_player_playing, index=i))
+
                 player.play()
+
                 # Set initial volume
-                player.audio_set_volume(self.volume_slider.value())
-                # Ensure mute is off
-                player.audio_set_mute(False)
+                checkbox = self.mute_checkboxes_layout.itemAt(i).widget()
+                if checkbox and checkbox.isChecked():
+                    player.audio_set_mute(True)
+                else:
+                    player.audio_set_mute(False)
+                    player.audio_set_volume(self.volume_slider.value())
+
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Playback Error", f"Failed to play video:\n{next_video}\nError: {str(e)}")
+
+        # Update UI elements
         self.play_button.setText("Pause")
         now_playing = ', '.join([os.path.basename(v) for v in self.last_played])
         self.current_video_label.setText(f"Now Playing: {now_playing}")
         self.timer.start()
+
+    def on_player_playing(self, event, index):
+        """Event handler for when a player starts playing."""
+        player = self.players[index]
+        # Set VLC marquee to display the video number on top-right
+        player.video_set_marquee_int(vlc.VideoMarqueeOption.Enable, 1)
+        player.video_set_marquee_int(vlc.VideoMarqueeOption.Size, -30)  # Absolute font size of 30 pixels
+        player.video_set_marquee_int(vlc.VideoMarqueeOption.Position, 6)  # Top-right corner
+        player.video_set_marquee_string(vlc.VideoMarqueeOption.Text, f"{index + 1}")
 
     def play_selected_video(self, item):
         """Play the selected video from the list in all players."""
         selected_video = item.text()
         self.last_played = [selected_video] * len(self.players)  # Update last played
 
-        for player in self.players:
+        for i, player in enumerate(self.players):
             try:
-                media = self.instance.media_new(selected_video)
+                media = self.instances[i].media_new(selected_video)
                 player.set_media(media)
-                player.video_set_mouse_input(False)  # Disable VLC mouse input
+
+                # Attach event manager
+                event_manager = player.event_manager()
+                event_manager.event_attach(vlc.EventType.MediaPlayerPlaying, functools.partial(self.on_player_playing, index=i))
+
                 player.play()
+
                 # Set initial volume
-                player.audio_set_volume(self.volume_slider.value())
-                # Ensure mute is off
-                player.audio_set_mute(False)
+                checkbox = self.mute_checkboxes_layout.itemAt(i).widget()
+                if checkbox and checkbox.isChecked():
+                    player.audio_set_mute(True)
+                else:
+                    player.audio_set_mute(False)
+                    player.audio_set_volume(self.volume_slider.value())
+
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "Playback Error", f"Failed to play video:\n{selected_video}\nError: {str(e)}")
         self.play_button.setText("Pause")
@@ -605,23 +584,6 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
     def update_ui(self):
         """Update the UI based on the players' state."""
-        # Update position slider
-        lengths = [player.get_length() for player in self.players if player.get_length() > 0]
-        if lengths:
-            total_length = max(lengths)
-            positions = [player.get_position() * 1000 for player in self.players]
-            average_position = sum(positions) / len(positions)
-            self.position_slider.blockSignals(True)
-            self.position_slider.setValue(int(average_position))
-            self.position_slider.blockSignals(False)
-
-            # Update time labels
-            current_times = [player.get_time() / 1000 for player in self.players]
-            current_time = max(current_times)
-            self.current_time_label.setText(self.format_time(current_time))
-            total_time = total_length / 1000
-            self.total_time_label.setText(self.format_time(total_time))
-
         # Check for ended videos and replace them
         for i, player in enumerate(self.players):
             state = player.get_state()
@@ -634,56 +596,26 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 self.last_played[i] = next_video
 
                 try:
-                    media = self.instance.media_new(next_video)
+                    media = self.instances[i].media_new(next_video)
                     player.set_media(media)
+
+                    # Attach event manager
+                    event_manager = player.event_manager()
+                    event_manager.event_attach(vlc.EventType.MediaPlayerPlaying, functools.partial(self.on_player_playing, index=i))
+
                     player.play()
                     # Set initial volume
-                    player.audio_set_volume(self.volume_slider.value())
-                    # Ensure mute is off
-                    player.audio_set_mute(False)
+                    checkbox = self.mute_checkboxes_layout.itemAt(i).widget()
+                    if checkbox and checkbox.isChecked():
+                        player.audio_set_mute(True)
+                    else:
+                        player.audio_set_mute(False)
+                        player.audio_set_volume(self.volume_slider.value())
                 except Exception as e:
                     QtWidgets.QMessageBox.critical(self, "Playback Error", f"Failed to play video:\n{next_video}\nError: {str(e)}")
             elif state == vlc.State.Error:
                 QtWidgets.QMessageBox.warning(self, "Playback Error", "An error occurred during playback.")
                 self.play_next()
-
-    def format_time(self, seconds):
-        """Format time in seconds to HH:MM:SS format."""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-        else:
-            return f"{minutes:02d}:{secs:02d}"
-
-    def adjust_volume(self, delta):
-        """Adjust volume by a delta."""
-        current_volume = self.volume_slider.value()
-        new_volume = max(0, min(100, current_volume + delta))
-        self.volume_slider.setValue(new_volume)
-
-    def keyPressEvent(self, event):
-        """Handle key press events for shortcuts."""
-        if event.key() == QtCore.Qt.Key.Key_Space:
-            self.play_pause()
-        elif event.key() == QtCore.Qt.Key.Key_N:
-            self.play_next()
-        elif event.key() == QtCore.Qt.Key.Key_S:
-            self.stop()
-        elif event.key() == QtCore.Qt.Key.Key_F:
-            self.toggle_fullscreen()
-        elif event.key() == QtCore.Qt.Key.Key_M:
-            self.toggle_mute()
-        elif event.key() == QtCore.Qt.Key.Key_Up:
-            self.adjust_volume(5)
-        elif event.key() == QtCore.Qt.Key.Key_Down:
-            self.adjust_volume(-5)
-        elif event.key() == QtCore.Qt.Key.Key_Escape:
-            if self.is_fullscreen:
-                self.toggle_fullscreen()
-        else:
-            super().keyPressEvent(event)
 
     def closeEvent(self, event):
         """Handle window close event."""
@@ -693,12 +625,12 @@ class VideoPlayer(QtWidgets.QMainWindow):
                 player.stop()
             time.sleep(0.1)  # Wait briefly to ensure the player has stopped
             player.release()
-        # Release the VLC instance
-        self.instance.release()
+        # Release the VLC instances
+        for instance in self.instances:
+            instance.release()
         # Add a small delay to allow VLC threads to close
         time.sleep(0.5)
         event.accept()
-
 
 def main():
     """Main entry point for the application."""
@@ -706,7 +638,6 @@ def main():
     player = VideoPlayer()
     player.show()
     sys.exit(app.exec())
-
 
 if __name__ == "__main__":
     main()
