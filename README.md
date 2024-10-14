@@ -26,11 +26,11 @@
 - **Individual Mute Controls:** Mute or unmute each video individually.
 - **Global Mute Control:** Mute or unmute all videos at once.
 - **Volume Control:** Adjust the volume of all non-muted videos using a slider.
+- **fast forward or backward:** Move through videos seperately by hovering your mouse over one and scrolling the mouse wheel.
 - **Fullscreen Mode:** Enter or exit fullscreen mode for an immersive viewing experience.
 - **Overlay Playback Controls:** Access playback controls in fullscreen with a single click.
 - **Shortcut Keys:** Utilize keyboard shortcuts for efficient control over playback.
 - **Help Panel:** Access a detailed help menu with usage instructions and shortcut keys.
-- **Error Handling:** Gracefully handles playback errors and missing video files.
 
 ## Installation
 
