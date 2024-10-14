@@ -6,14 +6,6 @@
 
 - **Random Video Playback**: Automatically plays random videos from the selected folder.
 - **Simultaneous Videos**: Play multiple videos at the same time (up to 9), arranged in a grid.
-- **Interactive Controls**:
-  - **Play/Pause** all videos collectively.
-  - **Next** to play a new set of random videos.
-  - **Stop** playback.
-  - **Fullscreen Mode**: Double-click any video or use the button to toggle fullscreen.
-  - **Mute/Unmute** all videos.
-  - **Volume Control**: Adjust the volume for all videos.
-  - **Seek Bar**: Click or drag to seek through the videos.
 - **Playlist Management**:
   - **Video List**: Displays all videos in the selected folder.
   - **Select Specific Video**: Double-click a video from the list to play it in all players.
