@@ -22,6 +22,7 @@
 
 ## Requirements
 
+- Windows 10/11
 - **Python 3.6** or higher
 - **VLC Media Player**: Install the desktop version of VLC media player.
 - Python Packages:
