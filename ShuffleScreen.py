@@ -24,6 +24,14 @@ VIDEO_EXTENSIONS = [
     '.webm', '.mpeg', '.mpg', '.ts', '.m4v'
 ]
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 def is_windows_dark_mode():
     """Check if Windows dark mode is enabled."""
@@ -71,6 +79,9 @@ class VideoPlayer(QtWidgets.QMainWindow):
         # Fullscreen state
         self.is_fullscreen = False
 
+        # Set the application window icon here, using the resource_path function
+        self.setWindowIcon(QtGui.QIcon(resource_path("app_icon.ico")))
+
         # UI setup
         self.init_ui()
 
@@ -81,7 +92,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface."""
-        self.setWindowTitle("Random Video Player")
+        self.setWindowTitle("ShuffleScreen")
         self.resize(800, 600)
 
         # Central widget
@@ -142,7 +153,7 @@ class VideoPlayer(QtWidgets.QMainWindow):
 
         self.volume_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.volume_slider.setRange(0, 100)
-        self.volume_slider.setValue(50)
+        self.volume_slider.setValue(100)
         self.volume_slider.valueChanged.connect(self.set_volume)
         self.volume_slider.setEnabled(False)
 
