@@ -21,7 +21,7 @@
 ## Features
 
 - **Multiple Video Playback:** Play up to 9 videos simultaneously in a grid layout.
-- **Random Video Selection:** Automatically plays random videos from a selected folder.
+- **Random Video Selection:** Automatically plays random videos from a selected folder and it's sub-folders.
 - **Playlist Management:** View and select videos from a playlist.
 - **Individual Mute Controls:** Mute or unmute each video individually.
 - **Global Mute Control:** Mute or unmute all videos at once.
