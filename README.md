@@ -1,6 +1,6 @@
 # ShuffleScreen
 
-![grafik](https://github.com/user-attachments/assets/cecac393-7504-4e2e-9952-9663aa8f56f4)
+![grafik](https://github.com/user-attachments/assets/aa8f1adf-a44b-4ccd-adc2-a9bfc4e8c4ea)
 
 
 ## Table of Contents
