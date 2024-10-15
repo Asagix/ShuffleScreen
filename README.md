@@ -1,7 +1,10 @@
 # ShuffleScreen
 
-![grafik](https://github.com/user-attachments/assets/aa8f1adf-a44b-4ccd-adc2-a9bfc4e8c4ea)
+## Overview
 
+**ShuffleScreen** is a versatile video player application built with Python, PyQt6, and VLC. It allows users to play multiple videos from a specific folder and it's sub-folders randomly and simultaneously in an automatic grid layout. Whether you're looking to showcase a collection of videos or create a dynamic multimedia display, ShuffleScreen offers an intuitive interface with robust playback controls and advanced features to enhance your viewing experience.
+
+![grafik](https://github.com/user-attachments/assets/aa8f1adf-a44b-4ccd-adc2-a9bfc4e8c4ea)
 
 ## Table of Contents
 
@@ -15,9 +18,7 @@
 - [Contributing](#contributing)
 - [License](#license)
 
-## Overview
 
-**ShuffleScreen** is a versatile video player application built with Python, PyQt6, and VLC. It allows users to play multiple videos from a specific folder and it's sub-folders randomly and simultaneously in an automatic grid layout. Whether you're looking to showcase a collection of videos or create a dynamic multimedia display, ShuffleScreen offers an intuitive interface with robust playback controls and advanced features to enhance your viewing experience.
 
 ## Features
 
